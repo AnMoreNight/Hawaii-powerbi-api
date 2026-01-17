@@ -6,7 +6,7 @@ services:
     startCommand: uvicorn main:app --host 0.0.0.0 --port $PORT
     envVars:
       - key: DATABASE_URL
-        value: sqlite+aiosqlite:///./reservations.db
+        sync: false  # Set this in Render dashboard with your Supabase connection string
       - key: LOG_LEVEL
         value: INFO
-      # Add AUTH_TOKEN in Render dashboard (don't put secrets in this file)
+      # Add AUTH_TOKEN and DATABASE_URL in Render dashboard (don't put secrets in this file)

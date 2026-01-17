@@ -44,6 +44,10 @@ The API will be available at `http://localhost:8000`
 
 For complete setup instructions, troubleshooting, and more details, see [SETUP_GUIDE.md](SETUP_GUIDE.md)
 
+### Testing with Postman
+
+For detailed Postman testing instructions, see [POSTMAN_TESTING_GUIDE.md](POSTMAN_TESTING_GUIDE.md)
+
 ## API Endpoints
 
 ### GET `/reservations`
@@ -78,24 +82,27 @@ Sync reservations from external API to local database with upsert logic.
 POST /sync?start_date=2025-10-01&end_date=2025-12-31
 ```
 
-### GET `/powerbi`
+## Database Setup
 
-Get reservations from database for Power BI consumption.
+The API uses **PostgreSQL** (Supabase) for data storage.
 
-**Query Parameters:**
-- `limit` (optional): Maximum records to return (default: 1000)
-- `offset` (optional): Number of records to skip (default: 0)
+### Required Configuration
 
-**Example:**
-```
-GET /powerbi?limit=10000&offset=0
-```
+1. **Set up Supabase database**:
+   - See [SUPABASE_SETUP_GUIDE.md](SUPABASE_SETUP_GUIDE.md) for detailed instructions
+   - Create a Supabase account and project
+   - Get your connection string
 
-## Power BI Integration
+2. **Configure DATABASE_URL**:
+   - Create `.env` file in project root
+   - Add: `DATABASE_URL=postgresql+asyncpg://postgres:YOUR_PASSWORD@db.xxxxx.supabase.co:5432/postgres`
+   - Replace with your actual Supabase connection string
 
-See [POWERBI_INTEGRATION.md](POWERBI_INTEGRATION.md) for detailed Power BI setup instructions.
+3. **Start the API**:
+   - The database tables will be created automatically on first startup
+   - Run: `python main.py`
 
-Quick start:
-1. Run sync endpoint to populate database: `POST /sync?start_date=2025-01-01&end_date=2025-12-31`
-2. Connect Power BI to: `http://localhost:8000/powerbi?limit=10000`
-3. Set up scheduled refresh in Power BI Service
+### Database Operations
+
+- **Sync data**: Use `/sync` endpoint to fetch and store reservations
+- **Upsert logic**: Existing records are updated, new records are inserted

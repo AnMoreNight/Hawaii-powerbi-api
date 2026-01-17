@@ -4,14 +4,14 @@ Main FastAPI application entry point.
 from fastapi import FastAPI, Query
 from fastapi.responses import JSONResponse
 from typing import Optional
+from contextlib import asynccontextmanager
 import logging
 
 from config import LOG_LEVEL, LOG_FORMAT, LOG_DATE_FORMAT
 from database import init_db, close_db
 from routes import (
     get_reservations_route,
-    sync_reservations_route,
-    get_powerbi_data_route
+    sync_reservations_route
 )
 
 # Configure logging
@@ -22,23 +22,23 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    """Lifespan context manager for startup and shutdown events."""
+    # Startup
+    await init_db()
+    yield
+    # Shutdown
+    await close_db()
+
+
 # Create FastAPI app
 app = FastAPI(
     title="Hawaii Car Rental API",
-    description="Filtered API for car rental reservations"
+    description="Filtered API for car rental reservations",
+    lifespan=lifespan
 )
-
-
-@app.on_event("startup")
-async def startup_event():
-    """Initialize database on startup."""
-    await init_db()
-
-
-@app.on_event("shutdown")
-async def shutdown_event():
-    """Close database connections on shutdown."""
-    await close_db()
 
 
 @app.get("/")
@@ -97,22 +97,6 @@ async def sync_reservations(
     - status: Optional comma-separated statuses (default: 'rental,completed')
     """
     return await sync_reservations_route(start_date, end_date, status)
-
-
-@app.get("/powerbi")
-async def get_powerbi_data(
-    limit: Optional[int] = Query(1000, description="Maximum number of records to return"),
-    offset: Optional[int] = Query(0, description="Number of records to skip")
-):
-    """
-    Get reservations from database for Power BI.
-    Returns data in a format optimized for Power BI consumption.
-    
-    Parameters:
-    - limit: Maximum number of records (default: 1000)
-    - offset: Number of records to skip (default: 0)
-    """
-    return await get_powerbi_data_route(limit, offset)
 
 
 if __name__ == "__main__":
