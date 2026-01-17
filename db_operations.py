@@ -91,7 +91,10 @@ async def upsert_reservation(session: AsyncSession, reservation_data: dict) -> R
     
     if existing:
         # Update existing reservation - replace all fields with new values
-        logger.debug(f"Updating existing reservation ID: {reservation_id}")
+        status = parsed_data.get('status', 'N/A')
+        pick_up = parsed_data.get('pick_up_date')
+        pick_up_str = pick_up.strftime('%Y-%m-%d %H:%M') if pick_up else 'N/A'
+        logger.info(f"[UPDATE] Reservation ID: {reservation_id} | Status: {status} | Pick-up: {pick_up_str}")
         
         existing.pick_up_date = parsed_data["pick_up_date"]
         existing.total_days = parsed_data["total_days"]
@@ -111,7 +114,10 @@ async def upsert_reservation(session: AsyncSession, reservation_data: dict) -> R
         return existing
     else:
         # Insert new reservation
-        logger.debug(f"Inserting new reservation ID: {reservation_id}")
+        status = parsed_data.get('status', 'N/A')
+        pick_up = parsed_data.get('pick_up_date')
+        pick_up_str = pick_up.strftime('%Y-%m-%d %H:%M') if pick_up else 'N/A'
+        logger.info(f"[INSERT] Reservation ID: {reservation_id} | Status: {status} | Pick-up: {pick_up_str}")
         
         new_reservation = Reservation(
             id=reservation_id,

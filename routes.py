@@ -105,7 +105,8 @@ async def sync_reservations_route(
                 updated_count = 0
                 error_count = 0
                 
-                for reservation_data in filtered_data:
+                total_to_process = len(filtered_data)
+                for index, reservation_data in enumerate(filtered_data, 1):
                     try:
                         reservation_id = reservation_data.get("id")
                         if not reservation_id:
@@ -119,7 +120,7 @@ async def sync_reservations_route(
                         )
                         existed = result.scalar_one_or_none() is not None
                         
-                        # Upsert reservation
+                        # Upsert reservation (logs insert/update inside function)
                         await upsert_reservation(session, reservation_data)
                         
                         # Commit after each upsert (or batch commits)
@@ -129,6 +130,10 @@ async def sync_reservations_route(
                             updated_count += 1
                         else:
                             inserted_count += 1
+                        
+                        # Log progress every 100 records
+                        if index % 100 == 0:
+                            logger.info(f"Progress: {index}/{total_to_process} processed (Inserted: {inserted_count}, Updated: {updated_count}, Errors: {error_count})")
                             
                     except Exception as e:
                         error_count += 1
@@ -140,7 +145,13 @@ async def sync_reservations_route(
                             logger.error(f"Rollback error: {rollback_error}")
                         continue
                 
-                logger.info(f"Sync complete. Inserted: {inserted_count}, Updated: {updated_count}, Errors: {error_count}")
+                logger.info("=" * 60)
+                logger.info(f"Sync completed successfully!")
+                logger.info(f"Total processed: {len(filtered_data)}")
+                logger.info(f"  - Inserted: {inserted_count}")
+                logger.info(f"  - Updated: {updated_count}")
+                logger.info(f"  - Errors: {error_count}")
+                logger.info("=" * 60)
                 
                 return JSONResponse(content={
                     "success": True,
