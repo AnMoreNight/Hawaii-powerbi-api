@@ -9,7 +9,17 @@ import logging
 logger = logging.getLogger(__name__)
 
 # Create async engine
-engine = create_async_engine(DATABASE_URL, echo=False)
+# Disable prepared statement cache for pgbouncer compatibility
+# Supabase uses pgbouncer which doesn't support prepared statements properly
+# Use connect_args to disable prepared statement caching
+engine = create_async_engine(
+    DATABASE_URL,
+    echo=False,
+    connect_args={
+        "statement_cache_size": 0,  # Disable prepared statement cache for pgbouncer
+    },
+    pool_pre_ping=True,  # Verify connections before using
+)
 
 # Create async session maker
 async_session_maker = async_sessionmaker(

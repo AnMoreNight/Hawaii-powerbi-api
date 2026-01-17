@@ -3,7 +3,7 @@ Database operations for reservations.
 """
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
-from datetime import datetime
+from datetime import datetime, timezone
 import logging
 
 from models import Reservation
@@ -21,15 +21,23 @@ def _parse_reservation_data(reservation_data: dict) -> dict:
     Returns:
         Parsed data dictionary with proper types
     """
-    # Parse pick_up_date
+    # Parse pick_up_date - ensure timezone-aware (UTC)
     pick_up_date = None
     if reservation_data.get("pick_up_date"):
         try:
             date_str = reservation_data["pick_up_date"]
-            # Handle different date formats
-            if "Z" in date_str:
-                date_str = date_str.replace("Z", "+00:00")
-            pick_up_date = datetime.fromisoformat(date_str)
+            # Parse datetime
+            dt = datetime.fromisoformat(date_str.replace("Z", "+00:00"))
+            
+            # Ensure timezone-aware (convert to UTC if timezone-naive)
+            if dt.tzinfo is None:
+                # If no timezone info, assume UTC
+                dt = dt.replace(tzinfo=timezone.utc)
+            else:
+                # Convert to UTC if timezone-aware
+                dt = dt.astimezone(timezone.utc)
+            
+            pick_up_date = dt
         except Exception as e:
             logger.warning(f"Failed to parse pick_up_date '{reservation_data.get('pick_up_date')}': {e}")
     
@@ -97,7 +105,7 @@ async def upsert_reservation(session: AsyncSession, reservation_data: dict) -> R
         existing.additional_charge_category_2 = parsed_data["additional_charge_category_2"]
         existing.additional_charge_category_3 = parsed_data["additional_charge_category_3"]
         existing.additional_charge_category_4 = parsed_data["additional_charge_category_4"]
-        existing.updated_at = datetime.utcnow()
+        existing.updated_at = datetime.now(timezone.utc)
         
         # Don't commit here - let caller handle transaction
         return existing
