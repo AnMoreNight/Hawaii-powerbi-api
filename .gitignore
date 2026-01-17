@@ -23,3 +23,5 @@ ENV/
 Thumbs.db
 
 example.json
+*.md
+!README.md
