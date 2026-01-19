@@ -11,7 +11,8 @@ from config import LOG_LEVEL, LOG_FORMAT, LOG_DATE_FORMAT
 from database import init_db, close_db
 from routes import (
     get_reservations_route,
-    sync_reservations_route
+    sync_reservations_route,
+    get_powerbi_data_route
 )
 
 # Configure logging
@@ -97,6 +98,31 @@ async def sync_reservations(
     - status: Optional comma-separated statuses (default: 'rental,completed')
     """
     return await sync_reservations_route(start_date, end_date, status)
+
+
+@app.get("/powerbi")
+async def get_powerbi_data():
+    """
+    Get all reservation data from database for Power BI.
+    
+    Returns all reservations stored in the database with the following fields:
+    - id
+    - pick_up_date
+    - total_days
+    - total_price
+    - rental_user_id
+    - pick_up_location_label
+    - discounts_amount
+    - status
+    - vehicle_class_label
+    - additional_charge_category_1
+    - additional_charge_category_2
+    - additional_charge_category_3
+    - additional_charge_category_4
+    - created_at
+    - updated_at
+    """
+    return await get_powerbi_data_route()
 
 
 if __name__ == "__main__":

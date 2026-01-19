@@ -182,3 +182,58 @@ async def sync_reservations_route(
         raise HTTPException(status_code=500, detail=f"Internal error: {str(e)}")
 
 
+async def get_powerbi_data_route():
+    """
+    Get all reservation data from database for Power BI.
+    Returns all reservations stored in the database.
+    """
+    try:
+        logger.info("Power BI data request - fetching all reservations from database...")
+        
+        async with async_session_maker() as session:
+            # Fetch all reservations from database
+            result = await session.execute(select(Reservation))
+            reservations = result.scalars().all()
+            
+            # Convert SQLAlchemy models to dictionaries
+            data = []
+            for reservation in reservations:
+                reservation_dict = {
+                    "id": reservation.id,
+                    "pick_up_date": reservation.pick_up_date.isoformat() if reservation.pick_up_date else None,
+                    "total_days": reservation.total_days,
+                    "total_price": float(reservation.total_price) if reservation.total_price is not None else None,
+                    "rental_user_id": reservation.rental_user_id,
+                    "pick_up_location_label": reservation.pick_up_location_label,
+                    "discounts_amount": float(reservation.discounts_amount) if reservation.discounts_amount is not None else None,
+                    "status": reservation.status,
+                    "vehicle_class_label": reservation.vehicle_class_label,
+                    "additional_charge_category_1": float(reservation.additional_charge_category_1) if reservation.additional_charge_category_1 is not None else 0.0,
+                    "additional_charge_category_2": float(reservation.additional_charge_category_2) if reservation.additional_charge_category_2 is not None else 0.0,
+                    "additional_charge_category_3": float(reservation.additional_charge_category_3) if reservation.additional_charge_category_3 is not None else 0.0,
+                    "additional_charge_category_4": float(reservation.additional_charge_category_4) if reservation.additional_charge_category_4 is not None else 0.0,
+                    "created_at": reservation.created_at.isoformat() if reservation.created_at else None,
+                    "updated_at": reservation.updated_at.isoformat() if reservation.updated_at else None,
+                }
+                data.append(reservation_dict)
+            
+            logger.info(f"Power BI data request complete. Returning {len(data)} reservations.")
+            
+            return JSONResponse(content={
+                "success": True,
+                "total": len(data),
+                "data": data
+            })
+            
+    except Exception as db_error:
+        error_msg = str(db_error)
+        logger.error(f"Database error in Power BI endpoint: {error_msg}")
+        raise HTTPException(
+            status_code=503,
+            detail=(
+                "Database connection failed. Please check your DATABASE_URL. "
+                f"Error: {error_msg}"
+            )
+        )
+
+
