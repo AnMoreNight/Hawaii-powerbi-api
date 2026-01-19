@@ -106,3 +106,12 @@ The API uses **PostgreSQL** (Supabase) for data storage.
 
 - **Sync data**: Use `/sync` endpoint to fetch and store reservations
 - **Upsert logic**: Existing records are updated, new records are inserted
+
+## Power BI Integration
+
+Connect Power BI workspace directly to your Supabase PostgreSQL database:
+
+- **See**: [POWERBI_WORKSPACE_INTEGRATION.md](POWERBI_WORKSPACE_INTEGRATION.md) for complete workspace integration guide
+- **See**: [POWERBI_SUPABASE_CONNECTION.md](POWERBI_SUPABASE_CONNECTION.md) for connection details
+- **Benefits**: Direct connection, faster, scheduled refresh support, workspace collaboration
+- **Requirements**: Supabase database active, Power BI Pro license (for scheduled refresh), workspace access

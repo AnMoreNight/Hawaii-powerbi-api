@@ -11,6 +11,16 @@ from models import Reservation
 logger = logging.getLogger(__name__)
 
 
+def _parse_float_or_default(value, default=0.0):
+    """Parse a value to float, returning default if parsing fails."""
+    if value is None:
+        return default
+    try:
+        return float(value)
+    except (ValueError, TypeError):
+        return default
+
+
 def _parse_reservation_data(reservation_data: dict) -> dict:
     """
     Parse and extract reservation data from dictionary.
@@ -48,19 +58,69 @@ def _parse_reservation_data(reservation_data: dict) -> dict:
         if isinstance(vehicle_info, dict):
             vehicle_class_label = vehicle_info.get("vehicle_class_label")
     
+    # Parse total_days - ensure it's an integer or None
+    total_days = reservation_data.get("total_days")
+    if total_days is not None:
+        try:
+            total_days = int(total_days)
+        except (ValueError, TypeError):
+            logger.warning(f"Failed to parse total_days '{total_days}', setting to None")
+            total_days = None
+    
+    # Parse rental_user_id - ensure it's an integer or None
+    rental_user_id = reservation_data.get("rental_user_id")
+    if rental_user_id is not None:
+        try:
+            rental_user_id = int(rental_user_id)
+        except (ValueError, TypeError):
+            logger.warning(f"Failed to parse rental_user_id '{rental_user_id}', setting to None")
+            rental_user_id = None
+    
+    # Parse total_price - ensure it's a float (or None)
+    total_price = reservation_data.get("total_price")
+    if total_price is not None:
+        try:
+            total_price = float(total_price)
+        except (ValueError, TypeError):
+            logger.warning(f"Failed to parse total_price '{total_price}', setting to None")
+            total_price = None
+    
+    # Parse discounts_amount - ensure it's a float (or None)
+    discounts_amount = reservation_data.get("discounts_amount")
+    if discounts_amount is not None:
+        try:
+            discounts_amount = float(discounts_amount)
+        except (ValueError, TypeError):
+            logger.warning(f"Failed to parse discounts_amount '{discounts_amount}', setting to None")
+            discounts_amount = None
+    
+    # Ensure pick_up_location_label is a string (or None)
+    pick_up_location_label = reservation_data.get("pick_up_location_label")
+    if pick_up_location_label is not None:
+        pick_up_location_label = str(pick_up_location_label)
+    
+    # Ensure status is a string (or None)
+    status = reservation_data.get("status")
+    if status is not None:
+        status = str(status)
+    
+    # Ensure vehicle_class_label is a string (or None)
+    if vehicle_class_label is not None:
+        vehicle_class_label = str(vehicle_class_label)
+    
     return {
         "pick_up_date": pick_up_date,
         "vehicle_class_label": vehicle_class_label,
-        "total_days": reservation_data.get("total_days"),
-        "total_price": reservation_data.get("total_price"),
-        "rental_user_id": reservation_data.get("rental_user_id"),
-        "pick_up_location_label": reservation_data.get("pick_up_location_label"),
-        "discounts_amount": reservation_data.get("discounts_amount"),
-        "status": reservation_data.get("status"),
-        "additional_charge_category_1": reservation_data.get("additional_charge_category_1", "0.0000000"),
-        "additional_charge_category_2": reservation_data.get("additional_charge_category_2", "0.0000000"),
-        "additional_charge_category_3": reservation_data.get("additional_charge_category_3", "0.0000000"),
-        "additional_charge_category_4": reservation_data.get("additional_charge_category_4", "0.0000000"),
+        "total_days": total_days,
+        "total_price": total_price,
+        "rental_user_id": rental_user_id,
+        "pick_up_location_label": pick_up_location_label,
+        "discounts_amount": discounts_amount,
+        "status": status,
+        "additional_charge_category_1": _parse_float_or_default(reservation_data.get("additional_charge_category_1"), 0.0),
+        "additional_charge_category_2": _parse_float_or_default(reservation_data.get("additional_charge_category_2"), 0.0),
+        "additional_charge_category_3": _parse_float_or_default(reservation_data.get("additional_charge_category_3"), 0.0),
+        "additional_charge_category_4": _parse_float_or_default(reservation_data.get("additional_charge_category_4"), 0.0),
     }
 
 
