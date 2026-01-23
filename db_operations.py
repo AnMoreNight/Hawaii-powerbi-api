@@ -67,14 +67,10 @@ def _parse_reservation_data(reservation_data: dict) -> dict:
             logger.warning(f"Failed to parse total_days '{total_days}', setting to None")
             total_days = None
     
-    # Parse rental_user_id - ensure it's an integer or None
-    rental_user_id = reservation_data.get("rental_user_id")
-    if rental_user_id is not None:
-        try:
-            rental_user_id = int(rental_user_id)
-        except (ValueError, TypeError):
-            logger.warning(f"Failed to parse rental_user_id '{rental_user_id}', setting to None")
-            rental_user_id = None
+    # Extract rental_user_name - ensure it's a string or None
+    rental_user_name = reservation_data.get("rental_user_name")
+    if rental_user_name is not None:
+        rental_user_name = str(rental_user_name)
     
     # Parse total_price - ensure it's a float (or None)
     total_price = reservation_data.get("total_price")
@@ -113,7 +109,7 @@ def _parse_reservation_data(reservation_data: dict) -> dict:
         "vehicle_class_label": vehicle_class_label,
         "total_days": total_days,
         "total_price": total_price,
-        "rental_user_id": rental_user_id,
+        "rental_user_name": rental_user_name,
         "pick_up_location_label": pick_up_location_label,
         "discounts_amount": discounts_amount,
         "status": status,
@@ -159,7 +155,7 @@ async def upsert_reservation(session: AsyncSession, reservation_data: dict) -> R
         existing.pick_up_date = parsed_data["pick_up_date"]
         existing.total_days = parsed_data["total_days"]
         existing.total_price = parsed_data["total_price"]
-        existing.rental_user_id = parsed_data["rental_user_id"]
+        existing.rental_user_name = parsed_data["rental_user_name"]
         existing.pick_up_location_label = parsed_data["pick_up_location_label"]
         existing.discounts_amount = parsed_data["discounts_amount"]
         existing.status = parsed_data["status"]
@@ -184,7 +180,7 @@ async def upsert_reservation(session: AsyncSession, reservation_data: dict) -> R
             pick_up_date=parsed_data["pick_up_date"],
             total_days=parsed_data["total_days"],
             total_price=parsed_data["total_price"],
-            rental_user_id=parsed_data["rental_user_id"],
+            rental_user_name=parsed_data["rental_user_name"],
             pick_up_location_label=parsed_data["pick_up_location_label"],
             discounts_amount=parsed_data["discounts_amount"],
             status=parsed_data["status"],

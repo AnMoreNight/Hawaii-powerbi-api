@@ -1,10 +1,10 @@
 """
 Data processing functions for filtering and merging reservation data.
 """
-from typing import Dict
+from typing import Dict, Optional
 
 
-def filter_reservation_data(reservation: dict) -> dict:
+def filter_reservation_data(reservation: dict, agent_mapping: Optional[dict] = None) -> dict:
     """
     Filter reservation data to include only the specified fields.
     Returns a filtered dictionary with only the required fields.
@@ -16,7 +16,15 @@ def filter_reservation_data(reservation: dict) -> dict:
     filtered["pick_up_date"] = reservation.get("pick_up_date")
     filtered["total_days"] = reservation.get("total_days")
     filtered["total_price"] = reservation.get("total_price")
-    filtered["rental_user_id"] = reservation.get("rental_user_id")
+    
+    # Extract rental_user_name from rental_user_id using agent mapping
+    rental_user_name = None
+    rental_user_id = reservation.get("rental_user_id")
+    if rental_user_id is not None and agent_mapping:
+        # Look up the full_name from the agent mapping
+        rental_user_name = agent_mapping.get(rental_user_id)
+    filtered["rental_user_name"] = rental_user_name
+    
     filtered["pick_up_location_label"] = reservation.get("pick_up_location_label")
     filtered["discounts_amount"] = reservation.get("discounts_amount")
     filtered["status"] = reservation.get("status")

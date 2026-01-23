@@ -7,7 +7,7 @@ from typing import Optional
 import httpx
 import logging
 
-from api_client import fetch_all_pages, build_filters, get_api_headers, BASE_URL
+from api_client import fetch_all_pages, build_filters, get_api_headers, BASE_URL, fetch_available_agents
 from data_processor import filter_reservation_data
 from database import async_session_maker
 from db_operations import upsert_reservation
@@ -29,7 +29,7 @@ async def get_reservations_route(
     - id, pick_up_date, total_days, total_price
     - additional_charge_category_1/2/3/4
     - active_vehicle_information.vehicle_class_label
-    - rental_user_id, pick_up_location_label, discounts_amount, status
+    - rental_user_name, pick_up_location_label, discounts_amount, status
     """
     try:
         logger.info(
@@ -43,11 +43,15 @@ async def get_reservations_route(
         
         # Fetch all pages and combine results
         async with httpx.AsyncClient() as client:
+            # Fetch available agents for rental_user_name mapping
+            agent_mapping = await fetch_available_agents(client)
+            
+            # Fetch reservations
             all_reservations = await fetch_all_pages(client, BASE_URL, headers, filters_json)
         
         # Filter each reservation
         logger.info(f"Filtering {len(all_reservations)} reservations...")
-        filtered_data = [filter_reservation_data(res) for res in all_reservations]
+        filtered_data = [filter_reservation_data(res, agent_mapping) for res in all_reservations]
         
         logger.info(f"Request complete. Returning {len(filtered_data)} filtered reservations.")
         
@@ -91,11 +95,15 @@ async def sync_reservations_route(
         
         # Fetch all pages and combine results
         async with httpx.AsyncClient() as client:
+            # Fetch available agents for rental_user_name mapping
+            agent_mapping = await fetch_available_agents(client)
+            
+            # Fetch reservations
             all_reservations = await fetch_all_pages(client, BASE_URL, headers, filters_json)
         
         # Filter each reservation
         logger.info(f"Filtering {len(all_reservations)} reservations...")
-        filtered_data = [filter_reservation_data(res) for res in all_reservations]
+        filtered_data = [filter_reservation_data(res, agent_mapping) for res in all_reservations]
         
         # Upsert to database
         logger.info(f"Syncing {len(filtered_data)} reservations to database...")
@@ -203,7 +211,7 @@ async def get_powerbi_data_route():
                     "pick_up_date": reservation.pick_up_date.isoformat() if reservation.pick_up_date else None,
                     "total_days": reservation.total_days,
                     "total_price": float(reservation.total_price) if reservation.total_price is not None else None,
-                    "rental_user_id": reservation.rental_user_id,
+                    "rental_user_name": reservation.rental_user_name,
                     "pick_up_location_label": reservation.pick_up_location_label,
                     "discounts_amount": float(reservation.discounts_amount) if reservation.discounts_amount is not None else None,
                     "status": reservation.status,

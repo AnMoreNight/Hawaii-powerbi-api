@@ -19,35 +19,17 @@ AUTH_TOKEN = os.getenv(
 )
 
 # Database Configuration
-# Must be set in .env file or environment variable
-# Example: DATABASE_URL=postgresql+asyncpg://postgres:password@db.xxxxx.supabase.co:5432/postgres
-DATABASE_URL = os.getenv("DATABASE_URL")
-if not DATABASE_URL:
-    raise ValueError(
-        "DATABASE_URL environment variable is required. "
-        "Please set it in .env file or environment variables. "
-        "Example: DATABASE_URL=postgresql+asyncpg://postgres:password@db.xxxxx.supabase.co:5432/postgres"
-    )
+# SQLite database URL - defaults to ./reservations.db if not set
+# Example: DATABASE_URL=sqlite+aiosqlite:///./reservations.db
+DATABASE_URL = os.getenv("DATABASE_URL", "sqlite+aiosqlite:///./reservations.db")
 
 # Remove quotes if present (common when copying from examples)
 DATABASE_URL = DATABASE_URL.strip('"').strip("'")
 
-# URL-encode special characters in password if needed
-# Check if password contains @ and needs encoding
-import re
-from urllib.parse import quote, unquote
-
-# Extract password from connection string and encode if needed
-# Format: postgresql+asyncpg://user:password@host:port/db
-match = re.match(r'(postgresql\+asyncpg://[^:]+:)([^@]+)(@.+)', DATABASE_URL)
-if match:
-    prefix, password, suffix = match.groups()
-    # If password contains @ but isn't already encoded, encode it
-    if '@' in password and '%40' not in password:
-        encoded_password = quote(password, safe='')
-        DATABASE_URL = f"{prefix}{encoded_password}{suffix}"
-        logger = logging.getLogger(__name__)
-        logger.info("Password contains '@' - automatically URL-encoded")
+# Ensure SQLite URL format is correct
+if not DATABASE_URL.startswith("sqlite+aiosqlite:///"):
+    logger.warning(f"Database URL doesn't start with 'sqlite+aiosqlite:///' - using default SQLite database")
+    DATABASE_URL = "sqlite+aiosqlite:///./reservations.db"
 
 # Logging Configuration
 LOG_LEVEL = os.getenv("LOG_LEVEL", "INFO")

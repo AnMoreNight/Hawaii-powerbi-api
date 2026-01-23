@@ -8,15 +8,13 @@ import logging
 
 logger = logging.getLogger(__name__)
 
-# Create async engine
-# Disable prepared statement cache for pgbouncer compatibility
-# Supabase uses pgbouncer which doesn't support prepared statements properly
-# Use connect_args to disable prepared statement caching
+# Create async engine for SQLite
+# SQLite uses aiosqlite for async operations
 engine = create_async_engine(
     DATABASE_URL,
     echo=False,
     connect_args={
-        "statement_cache_size": 0,  # Disable prepared statement cache for pgbouncer
+        "check_same_thread": False,  # SQLite-specific: allow multi-threaded access
     },
     pool_pre_ping=True,  # Verify connections before using
 )
@@ -47,7 +45,7 @@ async def init_db():
         logger.warning(f"⚠️  Failed to initialize database: {error_msg}")
         logger.warning("The application will start, but database endpoints (/sync) will not work.")
         logger.warning("Please check your DATABASE_URL in .env file")
-        logger.warning("Example: DATABASE_URL=postgresql+asyncpg://postgres:password@db.xxxxx.supabase.co:5432/postgres")
+        logger.warning("Example: DATABASE_URL=sqlite+aiosqlite:///./reservations.db")
         # Don't raise - allow app to start for endpoints that don't need database
         # Database connection will be checked when actually needed
 

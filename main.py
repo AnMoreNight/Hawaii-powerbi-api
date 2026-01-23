@@ -67,7 +67,7 @@ async def get_reservations(
     - additional_charge_category_3 (sum of pivot.total_price from all_additional_charges where category_id=3)
     - additional_charge_category_4 (sum of pivot.total_price from all_additional_charges where category_id=4)
     - active_vehicle_information.vehicle_class_label
-    - rental_user_id
+    - rental_user_name (from available-agents API using rental_user_id)
     - pick_up_location_label
     - discounts_amount
     - status
@@ -110,7 +110,7 @@ async def get_powerbi_data():
     - pick_up_date
     - total_days
     - total_price
-    - rental_user_id
+    - rental_user_name
     - pick_up_location_label
     - discounts_amount
     - status

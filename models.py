@@ -1,8 +1,7 @@
 """
 Database models for the application.
 """
-from sqlalchemy import Column, Integer, String, DateTime
-from sqlalchemy.dialects.postgresql import DOUBLE_PRECISION
+from sqlalchemy import Column, Integer, String, DateTime, Float
 from sqlalchemy.orm import declarative_base
 from datetime import datetime, timezone
 
@@ -21,15 +20,15 @@ class Reservation(Base):
     id = Column(Integer, primary_key=True, index=True)
     pick_up_date = Column(DateTime(timezone=True), nullable=True)
     total_days = Column(Integer, nullable=True)
-    total_price = Column(DOUBLE_PRECISION, nullable=True)
-    rental_user_id = Column(Integer, nullable=True)
+    total_price = Column(Float, nullable=True)
+    rental_user_name = Column(String, nullable=True)
     pick_up_location_label = Column(String, nullable=True)
-    discounts_amount = Column(DOUBLE_PRECISION, nullable=True)
+    discounts_amount = Column(Float, nullable=True)
     status = Column(String, nullable=True)
     vehicle_class_label = Column(String, nullable=True)
-    additional_charge_category_1 = Column(DOUBLE_PRECISION, nullable=True, default=0.0)
-    additional_charge_category_2 = Column(DOUBLE_PRECISION, nullable=True, default=0.0)
-    additional_charge_category_3 = Column(DOUBLE_PRECISION, nullable=True, default=0.0)
-    additional_charge_category_4 = Column(DOUBLE_PRECISION, nullable=True, default=0.0)
+    additional_charge_category_1 = Column(Float, nullable=True, default=0.0)
+    additional_charge_category_2 = Column(Float, nullable=True, default=0.0)
+    additional_charge_category_3 = Column(Float, nullable=True, default=0.0)
+    additional_charge_category_4 = Column(Float, nullable=True, default=0.0)
     created_at = Column(DateTime(timezone=True), default=utc_now)
     updated_at = Column(DateTime(timezone=True), default=utc_now, onupdate=utc_now)

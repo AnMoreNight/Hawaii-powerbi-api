@@ -156,3 +156,52 @@ def get_api_headers() -> dict:
         "Accept": "application/json",
         "Content-Type": "application/x-www-form-urlencoded"
     }
+
+
+async def fetch_available_agents(client: httpx.AsyncClient) -> dict:
+    """
+    Fetch available agents from the API and create a mapping of id -> full_name.
+    
+    Args:
+        client: HTTP client instance
+        
+    Returns:
+        Dictionary mapping agent id to full_name: {id: full_name}
+    """
+    agents_url = "https://api-america-west.caagcrm.com/api-america-west/car-rental/reservations/available-agents"
+    headers = get_api_headers()
+    
+    try:
+        logger.info("Fetching available agents...")
+        response = await client.get(agents_url, headers=headers, timeout=30.0)
+        response.raise_for_status()
+        agents_data = response.json()
+        
+        # Create mapping: id -> full_name
+        agent_mapping = {}
+        
+        # Handle different response formats
+        if isinstance(agents_data, list):
+            agents_list = agents_data
+        elif isinstance(agents_data, dict) and "data" in agents_data:
+            agents_list = agents_data["data"]
+        else:
+            logger.warning(f"Unexpected agents API response format: {type(agents_data)}")
+            return agent_mapping
+        
+        for agent in agents_list:
+            if isinstance(agent, dict):
+                agent_id = agent.get("id")
+                full_name = agent.get("full_name")
+                if agent_id is not None and full_name:
+                    agent_mapping[agent_id] = full_name
+        
+        logger.info(f"Fetched {len(agent_mapping)} agents")
+        return agent_mapping
+        
+    except httpx.HTTPStatusError as e:
+        logger.error(f"Error fetching agents: {e.response.status_code} - {e.response.text}")
+        return {}
+    except Exception as e:
+        logger.error(f"Error fetching available agents: {str(e)}")
+        return {}
