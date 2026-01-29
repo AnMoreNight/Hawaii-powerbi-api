@@ -4,11 +4,71 @@ External API client for fetching reservations.
 import httpx
 import json
 import logging
-from typing import List
+from typing import List, Tuple, Optional as TypingOptional
 from urllib.parse import quote
 from config import BASE_URL, AUTH_TOKEN
 
 logger = logging.getLogger(__name__)
+
+
+async def fetch_single_page(
+    client: httpx.AsyncClient,
+    base_url: str,
+    headers: dict,
+    filters_json: str,
+    page: int
+) -> Tuple[List[dict], TypingOptional[int], TypingOptional[int]]:
+    """
+    Fetch a single page of results from the paginated API.
+    
+    Args:
+        client: HTTP client instance
+        base_url: Base API URL
+        headers: Request headers
+        filters_json: JSON string of filters
+        page: Page number to fetch
+        
+    Returns:
+        Tuple of (reservations_list, current_page, last_page)
+        Returns empty list and None, None if page doesn't exist
+    """
+    url = f"{base_url}?page={page}&filters={quote(filters_json)}"
+    
+    try:
+        response = await client.get(url, headers=headers, timeout=30.0)
+        response.raise_for_status()
+        data = response.json()
+        
+        # Extract reservations from current page
+        if isinstance(data, dict):
+            if "data" in data:
+                page_reservations = data["data"]
+                current_page = data.get("current_page", page)
+                last_page = data.get("last_page", None)
+                return page_reservations, current_page, last_page
+            elif "success" in data and not data.get("success", True):
+                logger.error(f"API returned error on page {page}")
+                return [], None, None
+            else:
+                # Single reservation object
+                if any(k in data for k in ["id", "prefixed_id"]):
+                    return [data], 1, 1
+                return [], None, None
+        elif isinstance(data, list):
+            return data, page, None
+        else:
+            logger.warning(f"Unexpected response format on page {page}")
+            return [], None, None
+            
+    except httpx.HTTPStatusError as e:
+        if e.response.status_code == 404:
+            # Page doesn't exist
+            return [], None, None
+        logger.error(f"HTTP error on page {page}: {e.response.status_code} - {e.response.text}")
+        raise
+    except Exception as e:
+        logger.error(f"Error fetching page {page}: {str(e)}")
+        raise
 
 
 async def fetch_all_pages(

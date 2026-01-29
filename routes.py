@@ -7,7 +7,7 @@ from typing import Optional
 import httpx
 import logging
 
-from api_client import fetch_all_pages, build_filters, get_api_headers, BASE_URL, fetch_available_agents
+from api_client import fetch_all_pages, build_filters, get_api_headers, BASE_URL, fetch_available_agents, fetch_single_page
 from data_processor import filter_reservation_data
 from database import async_session_maker
 from db_operations import upsert_reservation
@@ -79,6 +79,7 @@ async def sync_reservations_route(
 ):
     """
     Sync reservations from external API to database.
+    Processes pages incrementally to avoid memory issues.
     Implements upsert logic:
     - If ID exists: update all fields with new values (replace, not merge)
     - If ID doesn't exist: insert new record
@@ -93,92 +94,128 @@ async def sync_reservations_route(
         filters_json = build_filters(start_date, end_date, status)
         headers = get_api_headers()
         
-        # Fetch all pages and combine results
+        # Initialize counters
+        inserted_count = 0
+        updated_count = 0
+        error_count = 0
+        total_processed = 0
+        
+        # Fetch available agents for rental_user_name mapping (once at the start)
         async with httpx.AsyncClient() as client:
-            # Fetch available agents for rental_user_name mapping
+            logger.info("Fetching available agents...")
             agent_mapping = await fetch_available_agents(client)
             
-            # Fetch reservations
-            all_reservations = await fetch_all_pages(client, BASE_URL, headers, filters_json)
-        
-        # Filter each reservation
-        logger.info(f"Filtering {len(all_reservations)} reservations...")
-        filtered_data = [filter_reservation_data(res, agent_mapping) for res in all_reservations]
-        
-        # Upsert to database
-        logger.info(f"Syncing {len(filtered_data)} reservations to database...")
-        try:
-            async with async_session_maker() as session:
-                inserted_count = 0
-                updated_count = 0
-                error_count = 0
-                
-                total_to_process = len(filtered_data)
-                for index, reservation_data in enumerate(filtered_data, 1):
-                    try:
-                        reservation_id = reservation_data.get("id")
-                        if not reservation_id:
-                            logger.warning("Skipping reservation without ID")
-                            error_count += 1
-                            continue
-                        
-                        # Check if exists before upsert (for counting)
-                        result = await session.execute(
-                            select(Reservation).where(Reservation.id == reservation_id)
+            # Process pages incrementally
+            page = 1
+            last_page = None
+            
+            logger.info("Starting incremental page-by-page sync...")
+            
+            try:
+                async with async_session_maker() as session:
+                    while True:
+                        # Fetch single page
+                        logger.info(f"Fetching page {page}...")
+                        page_reservations, current_page, fetched_last_page = await fetch_single_page(
+                            client, BASE_URL, headers, filters_json, page
                         )
-                        existed = result.scalar_one_or_none() is not None
                         
-                        # Upsert reservation (logs insert/update inside function)
-                        await upsert_reservation(session, reservation_data)
+                        # Update last_page if we got it from API
+                        if fetched_last_page is not None:
+                            last_page = fetched_last_page
                         
-                        # Commit after each upsert (or batch commits)
-                        await session.commit()
+                        # If no reservations on this page, we're done
+                        if not page_reservations:
+                            logger.info(f"No data on page {page}. Sync complete.")
+                            break
                         
-                        if existed:
-                            updated_count += 1
-                        else:
-                            inserted_count += 1
+                        # Process this page's reservations immediately
+                        logger.info(f"Processing {len(page_reservations)} reservations from page {current_page}...")
                         
-                        # Log progress every 100 records
-                        if index % 100 == 0:
-                            logger.info(f"Progress: {index}/{total_to_process} processed (Inserted: {inserted_count}, Updated: {updated_count}, Errors: {error_count})")
-                            
-                    except Exception as e:
-                        error_count += 1
-                        logger.error(f"Error upserting reservation {reservation_data.get('id')}: {str(e)}")
-                        logger.error(f"Error type: {type(e).__name__}")
-                        try:
-                            await session.rollback()
-                        except Exception as rollback_error:
-                            logger.error(f"Rollback error: {rollback_error}")
-                        continue
+                        for reservation in page_reservations:
+                            try:
+                                # Filter reservation data
+                                reservation_data = filter_reservation_data(reservation, agent_mapping)
+                                
+                                reservation_id = reservation_data.get("id")
+                                if not reservation_id:
+                                    logger.warning("Skipping reservation without ID")
+                                    error_count += 1
+                                    continue
+                                
+                                # Check if exists before upsert (for counting)
+                                result = await session.execute(
+                                    select(Reservation).where(Reservation.id == reservation_id)
+                                )
+                                existed = result.scalar_one_or_none() is not None
+                                
+                                # Upsert reservation (logs insert/update inside function)
+                                await upsert_reservation(session, reservation_data)
+                                
+                                # Commit after each upsert
+                                await session.commit()
+                                
+                                if existed:
+                                    updated_count += 1
+                                else:
+                                    inserted_count += 1
+                                
+                                total_processed += 1
+                                
+                                # Log progress every 100 records
+                                if total_processed % 100 == 0:
+                                    logger.info(f"Progress: {total_processed} processed (Inserted: {inserted_count}, Updated: {updated_count}, Errors: {error_count})")
+                                    
+                            except Exception as e:
+                                error_count += 1
+                                logger.error(f"Error upserting reservation {reservation_data.get('id')}: {str(e)}")
+                                logger.error(f"Error type: {type(e).__name__}")
+                                try:
+                                    await session.rollback()
+                                except Exception as rollback_error:
+                                    logger.error(f"Rollback error: {rollback_error}")
+                                continue
+                        
+                        # Check if we've reached the last page
+                        if last_page is not None and current_page >= last_page:
+                            logger.info(f"Reached last page ({last_page}). Sync complete.")
+                            break
+                        
+                        # Move to next page
+                        page += 1
+                        
+                        # Safety check: prevent infinite loops
+                        if page > 10000:
+                            logger.warning("Reached maximum page limit (10000). Stopping.")
+                            break
                 
-                logger.info("=" * 60)
-                logger.info(f"Sync completed successfully!")
-                logger.info(f"Total processed: {len(filtered_data)}")
-                logger.info(f"  - Inserted: {inserted_count}")
-                logger.info(f"  - Updated: {updated_count}")
-                logger.info(f"  - Errors: {error_count}")
-                logger.info("=" * 60)
-                
-                return JSONResponse(content={
-                    "success": True,
-                    "message": "Sync completed successfully",
-                    "total_processed": len(filtered_data),
-                    "inserted": inserted_count,
-                    "updated": updated_count,
-                    "errors": error_count
-                })
-        except Exception as db_error:
-            error_msg = str(db_error)
-            logger.error(f"Database connection error: {error_msg}")
-            raise HTTPException(
-                status_code=503,
-                detail=(
-                    "Database connection failed. Please check your DATABASE_URL. "
-                    f"Error: {error_msg}"
+            except Exception as db_error:
+                error_msg = str(db_error)
+                logger.error(f"Database connection error: {error_msg}")
+                raise HTTPException(
+                    status_code=503,
+                    detail=(
+                        "Database connection failed. Please check your DATABASE_URL. "
+                        f"Error: {error_msg}"
+                    )
                 )
-            )
+        
+        logger.info("=" * 60)
+        logger.info(f"Sync completed successfully!")
+        logger.info(f"Total processed: {total_processed}")
+        logger.info(f"  - Inserted: {inserted_count}")
+        logger.info(f"  - Updated: {updated_count}")
+        logger.info(f"  - Errors: {error_count}")
+        logger.info("=" * 60)
+        
+        return JSONResponse(content={
+            "success": True,
+            "message": "Sync completed successfully",
+            "total_processed": total_processed,
+            "inserted": inserted_count,
+            "updated": updated_count,
+            "errors": error_count
+        })
     
     except httpx.HTTPStatusError as e:
         raise HTTPException(
