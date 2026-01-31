@@ -12,7 +12,7 @@ from data_processor import filter_reservation_data
 from database import async_session_maker
 from db_operations import upsert_reservation
 from models import Reservation
-from sqlalchemy import select
+from sqlalchemy import select, text
 
 logger = logging.getLogger(__name__)
 
@@ -155,6 +155,13 @@ async def sync_reservations_route(
                                 # Commit after each upsert
                                 await session.commit()
                                 
+                                # Flush to ensure data is written to disk
+                                await session.flush()
+                                
+                                # For SQLite, checkpoint WAL periodically to ensure visibility
+                                if total_processed % 50 == 0:
+                                    await session.execute(text("PRAGMA wal_checkpoint(PASSIVE)"))
+                                
                                 if existed:
                                     updated_count += 1
                                 else:
@@ -176,6 +183,12 @@ async def sync_reservations_route(
                                     logger.error(f"Rollback error: {rollback_error}")
                                 continue
                         
+                        # Checkpoint WAL after each page to ensure data is visible
+                        try:
+                            await session.execute(text("PRAGMA wal_checkpoint(PASSIVE)"))
+                        except Exception as checkpoint_error:
+                            logger.warning(f"WAL checkpoint warning (non-critical): {checkpoint_error}")
+                        
                         # Check if we've reached the last page
                         if last_page is not None and current_page >= last_page:
                             logger.info(f"Reached last page ({last_page}). Sync complete.")
@@ -188,6 +201,14 @@ async def sync_reservations_route(
                         if page > 10000:
                             logger.warning("Reached maximum page limit (10000). Stopping.")
                             break
+                    
+                    # Final checkpoint to ensure all data is written and visible
+                    try:
+                        await session.execute(text("PRAGMA wal_checkpoint(TRUNCATE)"))
+                        await session.commit()  # Commit the checkpoint
+                        logger.info("Final WAL checkpoint completed - all data should be visible")
+                    except Exception as final_checkpoint_error:
+                        logger.warning(f"Final WAL checkpoint warning: {final_checkpoint_error}")
                 
             except Exception as db_error:
                 error_msg = str(db_error)
