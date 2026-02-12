@@ -8,12 +8,12 @@ from contextlib import asynccontextmanager
 import logging
 
 from config import LOG_LEVEL, LOG_FORMAT, LOG_DATE_FORMAT
-from database import init_db, close_db
 from routes import (
     get_reservations_route,
     sync_reservations_route,
     get_powerbi_data_route
 )
+from mongo_database import close_client as close_mongo_client
 
 # Configure logging
 logging.basicConfig(
@@ -27,11 +27,10 @@ logger = logging.getLogger(__name__)
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Lifespan context manager for startup and shutdown events."""
-    # Startup
-    await init_db()
+    # Startup: no schema creation needed for MongoDB
     yield
-    # Shutdown
-    await close_db()
+    # Shutdown: close MongoDB client
+    await close_mongo_client()
 
 
 # Create FastAPI app

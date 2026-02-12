@@ -18,18 +18,14 @@ AUTH_TOKEN = os.getenv(
     "Basic dTAzNUhSVWRGQUdvZlFPNzg2UVdoQmJEWWVFb3A2Tjk0bUFQODk3UEhRQ1VJY2c0ZG46cmp5YUZsWGVVM2pzQURTdkV5THJEYkpNYUlwYnpJbjFDUEFnRGJHbnF2ckxsNDhuc0Q="
 )
 
-# Database Configuration
-# SQLite database URL - defaults to ./reservations.db if not set
-# Example: DATABASE_URL=sqlite+aiosqlite:///./reservations.db
-DATABASE_URL = os.getenv("DATABASE_URL", "sqlite+aiosqlite:///./reservations.db")
-
-# Remove quotes if present (common when copying from examples)
-DATABASE_URL = DATABASE_URL.strip('"').strip("'")
-
-# Ensure SQLite URL format is correct
-if not DATABASE_URL.startswith("sqlite+aiosqlite:///"):
-    logger.warning(f"Database URL doesn't start with 'sqlite+aiosqlite:///' - using default SQLite database")
-    DATABASE_URL = "sqlite+aiosqlite:///./reservations.db"
+# MongoDB Configuration
+# Example:
+#   MONGODB_URI=mongodb+srv://user:password@cluster0.xxxxx.mongodb.net/?retryWrites=true&w=majority
+#   MONGODB_DB=hawaii_rental
+#   MONGODB_RESERVATIONS_COLLECTION=reservations
+MONGODB_URI = os.getenv("MONGODB_URI")
+if not MONGODB_URI:
+    logger.warning("MONGODB_URI is not set. Please configure it in your environment for MongoDB.")
 
 # Logging Configuration
 LOG_LEVEL = os.getenv("LOG_LEVEL", "INFO")
