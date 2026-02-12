@@ -12,6 +12,7 @@ from data_processor import filter_reservation_data
 from mongo_database import get_reservations_collection
 from datetime import datetime, timedelta, timezone
 from pymongo import UpdateOne
+from pymongo.errors import BulkWriteError
 import json
 
 logger = logging.getLogger(__name__)
@@ -207,21 +208,25 @@ async def sync_reservations_route(
                         continue
                     try:
                         doc = json.loads(line)
-                    except json.JSONDecodeError as decode_error:
-                        logger.warning(f"Skipping invalid JSON line in buffer: {decode_error}")
+                    except json.JSONDecodeError:
+                        # Skip invalid JSON lines silently
                         continue
 
                     reservation_id = doc.get("id")
                     if not reservation_id:
                         continue
 
+                    # Extract created_at so we don't set the same field in both $set and $setOnInsert
+                    created_at_value = doc.pop("created_at", None)
+
+                    update_doc = {"$set": doc}
+                    if created_at_value:
+                        update_doc["$setOnInsert"] = {"created_at": created_at_value}
+
                     operations.append(
                         UpdateOne(
                             {"id": reservation_id},
-                            {
-                                "$set": doc,
-                                "$setOnInsert": {"created_at": doc.get("created_at", now_utc)},
-                            },
+                            update_doc,
                             upsert=True,
                         )
                     )
@@ -243,8 +248,17 @@ async def sync_reservations_route(
                     f"Bulk upsert completed. Inserted: {inserted_count}, "
                     f"Matched/Updated: {updated_count}"
                 )
-            except Exception as bulk_error:
-                logger.error(f"Bulk upsert error: {bulk_error}")
+            except BulkWriteError as bulk_error:
+                # Avoid dumping full operation details (which include buffer JSON)
+                details = bulk_error.details or {}
+                write_errors = details.get("writeErrors", [])
+                if write_errors:
+                    first = write_errors[0]
+                    code = first.get("code")
+                    msg = first.get("errmsg")
+                    logger.error(f"Bulk upsert error (first): code={code}, msg={msg}")
+                else:
+                    logger.error("Bulk upsert error with no writeErrors details")
                 error_count += 1
 
         logger.info("=" * 60)
