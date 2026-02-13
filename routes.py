@@ -2,10 +2,11 @@
 API routes/endpoints for the application.
 """
 from fastapi import Query, HTTPException
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, StreamingResponse
 from typing import Optional
 import httpx
 import logging
+import asyncio
 
 from api_client import fetch_all_pages, build_filters, get_api_headers, BASE_URL, fetch_available_agents, fetch_single_page
 from data_processor import filter_reservation_data
@@ -100,6 +101,7 @@ async def sync_reservations_route(
         updated_count = 0
         error_count = 0
         total_processed = 0
+        total_pages_fetched = 0
 
         # Prepare MongoDB collection and timestamp
         reservations_collection = await get_reservations_collection()
@@ -116,19 +118,22 @@ async def sync_reservations_route(
             logger.warning(f"Failed to reset buffer file {buffer_file}: {reset_error}")
 
         # Fetch available agents for rental_user_name mapping (once at the start)
+        # Note: "agents" are rental staff/users - used to map rental_user_id -> full_name
         async with httpx.AsyncClient() as client:
-            logger.info("Fetching available agents...")
+            logger.info("Fetching rental user agents (for rental_user_name mapping)...")
             agent_mapping = await fetch_available_agents(client)
+            logger.info(f"Loaded {len(agent_mapping)} rental user agents for name mapping")
 
             # Process pages incrementally
             page = 1
             last_page = None
+            total_pages_fetched = 0
 
             logger.info("Starting incremental page-by-page sync (MongoDB)...")
 
             while True:
                 # Fetch single page
-                logger.info(f"Fetching page {page}...")
+                logger.info(f"Fetching reservations page {page}...")
                 page_reservations, current_page, fetched_last_page = await fetch_single_page(
                     client, BASE_URL, headers, filters_json, page
                 )
@@ -136,11 +141,19 @@ async def sync_reservations_route(
                 # Update last_page if we got it from API
                 if fetched_last_page is not None:
                     last_page = fetched_last_page
+                    logger.info(f"API reports total pages: {last_page}")
 
                 # If no reservations on this page, we're done
                 if not page_reservations:
                     logger.info(f"No data on page {page}. Sync complete.")
                     break
+
+                total_pages_fetched += 1
+                logger.info(
+                    f"Page {current_page}/{last_page if last_page else '?'}: "
+                    f"Fetched {len(page_reservations)} reservations "
+                    f"(Total pages fetched so far: {total_pages_fetched})"
+                )
 
                 # Process this page's reservations and write to buffer file
                 logger.info(f"Buffering {len(page_reservations)} reservations from page {current_page}...")
@@ -183,7 +196,10 @@ async def sync_reservations_route(
 
                 # Check if we've reached the last page
                 if last_page is not None and current_page >= last_page:
-                    logger.info(f"Reached last page ({last_page}). Sync complete.")
+                    logger.info(
+                        f"Reached last page ({last_page}/{last_page}). "
+                        f"Total pages fetched: {total_pages_fetched}. Sync complete."
+                    )
                     break
 
                 # Move to next page
@@ -263,7 +279,8 @@ async def sync_reservations_route(
 
         logger.info("=" * 60)
         logger.info(f"Sync completed successfully!")
-        logger.info(f"Total processed (buffered): {total_processed}")
+        logger.info(f"Total pages fetched: {total_pages_fetched}")
+        logger.info(f"Total reservations processed (buffered): {total_processed}")
         logger.info(f"  - Inserted (bulk): {inserted_count}")
         logger.info(f"  - Updated (bulk matched): {updated_count}")
         logger.info(f"  - Errors: {error_count}")
@@ -293,6 +310,8 @@ async def get_powerbi_data_route():
     Get all reservation data from MongoDB for Power BI.
     Automatically syncs last 60 days of data before returning results.
     Returns all reservations stored in the database.
+    
+    Uses streaming to avoid memory issues with large datasets.
     """
     try:
         # Calculate date range: last 60 days from today
@@ -313,24 +332,45 @@ async def get_powerbi_data_route():
             logger.warning(f"⚠️  Sync failed before Power BI retrieval: {str(sync_error)}")
             logger.warning("⚠️  Continuing with existing MongoDB data...")
 
-        logger.info("Power BI data request - fetching all reservations from MongoDB...")
+        logger.info("Power BI data request - streaming reservations from MongoDB...")
 
         reservations_collection = await get_reservations_collection()
         cursor = reservations_collection.find({})
 
-        data = []
-        async for doc in cursor:
-            # Remove internal MongoDB _id
-            doc.pop("_id", None)
-            data.append(doc)
+        async def generate_json_stream():
+            """Generator that streams JSON data without loading everything into memory."""
+            count = 0
+            yield '{"success":true,"data":['  # Start JSON response
+            
+            first_item = True
+            async for doc in cursor:
+                # Remove internal MongoDB _id
+                doc.pop("_id", None)
+                
+                if not first_item:
+                    yield ','
+                first_item = False
+                
+                # Stream each document as JSON
+                yield json.dumps(doc, ensure_ascii=False)
+                count += 1
+                
+                # Yield control periodically to avoid blocking
+                if count % 10000 == 0:
+                    await asyncio.sleep(0)  # Yield to event loop
+                    logger.info(f"Streamed {count} documents so far...")
+            
+            yield f'],"total":{count}}}'  # End JSON response
+            logger.info(f"Power BI data streaming complete. Streamed {count} reservations.")
 
-        logger.info(f"Power BI data request complete. Returning {len(data)} reservations.")
-
-        return JSONResponse(content={
-            "success": True,
-            "total": len(data),
-            "data": data
-        })
+        return StreamingResponse(
+            generate_json_stream(),
+            media_type="application/json",
+            headers={
+                "Cache-Control": "no-cache",
+                "Connection": "keep-alive"
+            }
+        )
 
     except Exception as db_error:
         error_msg = str(db_error)

@@ -221,6 +221,7 @@ def get_api_headers() -> dict:
 async def fetch_available_agents(client: httpx.AsyncClient) -> dict:
     """
     Fetch available agents from the API and create a mapping of id -> full_name.
+    Handles pagination if the API returns paginated results.
     
     Args:
         client: HTTP client instance
@@ -233,30 +234,81 @@ async def fetch_available_agents(client: httpx.AsyncClient) -> dict:
     
     try:
         logger.info("Fetching available agents...")
-        response = await client.get(agents_url, headers=headers, timeout=30.0)
-        response.raise_for_status()
-        agents_data = response.json()
         
         # Create mapping: id -> full_name
         agent_mapping = {}
+        all_agents = []
+        page = 1
+        last_page = None
         
-        # Handle different response formats
-        if isinstance(agents_data, list):
-            agents_list = agents_data
-        elif isinstance(agents_data, dict) and "data" in agents_data:
-            agents_list = agents_data["data"]
-        else:
-            logger.warning(f"Unexpected agents API response format: {type(agents_data)}")
-            return agent_mapping
+        # Fetch all pages if paginated
+        while True:
+            # Build URL with page parameter
+            if page == 1:
+                url = agents_url
+            else:
+                url = f"{agents_url}?page={page}"
+            
+            response = await client.get(url, headers=headers, timeout=30.0)
+            response.raise_for_status()
+            agents_data = response.json()
+            
+            # Handle different response formats
+            page_agents = []
+            if isinstance(agents_data, list):
+                page_agents = agents_data
+                # If it's a list, assume no pagination (single page)
+                all_agents.extend(page_agents)
+                logger.info(f"Fetched {len(page_agents)} agents from page {page} (list format, no pagination)")
+                break
+            elif isinstance(agents_data, dict):
+                if "data" in agents_data:
+                    page_agents = agents_data["data"]
+                    all_agents.extend(page_agents)
+                    
+                    # Check for pagination metadata
+                    current_page = agents_data.get("current_page", page)
+                    last_page = agents_data.get("last_page", None)
+                    total = agents_data.get("total", len(all_agents))
+                    
+                    logger.info(
+                        f"Fetched {len(page_agents)} agents from page {current_page} "
+                        f"(Total so far: {len(all_agents)}/{total})"
+                    )
+                    
+                    # Check if we've reached the last page
+                    if last_page is not None and current_page >= last_page:
+                        logger.info(f"Reached last page ({last_page}). All agents fetched.")
+                        break
+                    elif not page_agents:
+                        # No data on this page, we're done
+                        break
+                    
+                    page += 1
+                else:
+                    # Single agent object or unexpected format
+                    logger.warning(f"Unexpected agents API response format: {type(agents_data)}")
+                    logger.warning(f"Response keys: {list(agents_data.keys()) if isinstance(agents_data, dict) else 'N/A'}")
+                    break
+            else:
+                logger.warning(f"Unexpected agents API response format: {type(agents_data)}")
+                break
         
-        for agent in agents_list:
+        # Create mapping from all fetched agents
+        for agent in all_agents:
             if isinstance(agent, dict):
                 agent_id = agent.get("id")
                 full_name = agent.get("full_name")
                 if agent_id is not None and full_name:
                     agent_mapping[agent_id] = full_name
         
-        logger.info(f"Fetched {len(agent_mapping)} agents")
+        logger.info(f"Total agents fetched: {len(all_agents)}, mapped: {len(agent_mapping)}")
+        
+        # Log a sample of agent IDs for debugging
+        if agent_mapping:
+            sample_ids = list(agent_mapping.keys())[:5]
+            logger.info(f"Sample agent IDs: {sample_ids}")
+        
         return agent_mapping
         
     except httpx.HTTPStatusError as e:
