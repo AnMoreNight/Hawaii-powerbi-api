@@ -7,16 +7,22 @@ from typing import Optional
 import httpx
 import logging
 import asyncio
+from datetime import datetime, timedelta, timezone
 
 from api_client import fetch_all_pages, build_filters, get_api_headers, BASE_URL, fetch_available_agents, fetch_single_page
 from data_processor import filter_reservation_data
 from mongo_database import get_reservations_collection
-from datetime import datetime, timedelta, timezone
 from pymongo import UpdateOne
 from pymongo.errors import BulkWriteError
 import json
 
 logger = logging.getLogger(__name__)
+
+# Sync lock and cache to prevent duplicate syncs when multiple requests come in quickly
+_sync_lock = asyncio.Lock()
+_last_sync_time: Optional[datetime] = None
+_sync_in_progress = False
+SYNC_CACHE_MINUTES = 5  # Skip sync if last sync was within this many minutes
 
 
 async def get_reservations_route(
@@ -308,11 +314,14 @@ async def sync_reservations_route(
 async def get_powerbi_data_route():
     """
     Get all reservation data from MongoDB for Power BI.
-    Automatically syncs last 60 days of data before returning results.
-    Returns all reservations stored in the database.
     
+    Automatically syncs last 60 days of data before returning results.
+    Uses sync cache to prevent duplicate syncs when multiple requests come in quickly.
+    Returns all reservations stored in the database.
     Uses streaming to avoid memory issues with large datasets.
     """
+    global _last_sync_time, _sync_in_progress
+    
     try:
         # Calculate date range: last 60 days from today
         today = datetime.now().date()
@@ -320,19 +329,54 @@ async def get_powerbi_data_route():
         start_date_str = start_date.strftime("%Y-%m-%d")
         end_date_str = today.strftime("%Y-%m-%d")
 
-        logger.info(
-            f"Power BI request - Syncing data from {start_date_str} to {end_date_str} (last 60 days)..."
-        )
+        # Check if we should skip sync (recent sync completed)
+        should_sync = True
+        now = datetime.now(timezone.utc)
+        
+        if _last_sync_time is not None:
+            time_since_sync = (now - _last_sync_time).total_seconds() / 60
+            if time_since_sync < SYNC_CACHE_MINUTES:
+                should_sync = False
+                logger.info(
+                    f"Power BI request - Skipping sync (last sync was {time_since_sync:.1f} minutes ago, "
+                    f"cache: {SYNC_CACHE_MINUTES} minutes)"
+                )
+        
+        # Sync last 60 days before returning data (with lock to prevent concurrent syncs)
+        if should_sync:
+            async with _sync_lock:
+                # Double-check after acquiring lock (another request might have synced)
+                if _last_sync_time is not None:
+                    time_since_sync = (datetime.now(timezone.utc) - _last_sync_time).total_seconds() / 60
+                    if time_since_sync < SYNC_CACHE_MINUTES:
+                        should_sync = False
+                        logger.info("Another request already synced, skipping duplicate sync")
+                
+                if should_sync and not _sync_in_progress:
+                    _sync_in_progress = True
+                    try:
+                        logger.info(
+                            f"Power BI request - Syncing data from {start_date_str} to {end_date_str} (last 60 days)..."
+                        )
+                        await sync_reservations_route(start_date_str, end_date_str)
+                        _last_sync_time = datetime.now(timezone.utc)
+                        logger.info("✅ Sync completed before Power BI data retrieval")
+                    except Exception as sync_error:
+                        logger.warning(f"⚠️  Sync failed before Power BI retrieval: {str(sync_error)}")
+                        logger.warning("⚠️  Continuing with existing MongoDB data...")
+                    finally:
+                        _sync_in_progress = False
+                elif _sync_in_progress:
+                    logger.info("Sync already in progress from another request, waiting for it to complete...")
+                    # Wait a bit for the other sync to complete
+                    await asyncio.sleep(1)
+                    # Check again
+                    if _last_sync_time is not None:
+                        time_since_sync = (datetime.now(timezone.utc) - _last_sync_time).total_seconds() / 60
+                        if time_since_sync < SYNC_CACHE_MINUTES:
+                            logger.info("Sync completed by another request, proceeding with data retrieval")
 
-        # Call sync API internally first
-        try:
-            await sync_reservations_route(start_date_str, end_date_str)
-            logger.info("✅ Sync completed before Power BI data retrieval")
-        except Exception as sync_error:
-            logger.warning(f"⚠️  Sync failed before Power BI retrieval: {str(sync_error)}")
-            logger.warning("⚠️  Continuing with existing MongoDB data...")
-
-        logger.info("Power BI data request - streaming reservations from MongoDB...")
+        logger.info("Power BI data request - streaming all reservations from MongoDB...")
 
         reservations_collection = await get_reservations_collection()
         cursor = reservations_collection.find({})

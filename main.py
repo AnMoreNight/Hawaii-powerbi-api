@@ -104,6 +104,8 @@ async def get_powerbi_data():
     """
     Get all reservation data from database for Power BI.
     
+    Automatically syncs last 60 days of data before returning all reservations.
+    
     Returns all reservations stored in the database with the following fields:
     - id
     - pick_up_date
@@ -113,7 +115,7 @@ async def get_powerbi_data():
     - pick_up_location_label
     - discounts_amount
     - status
-    - vehicle_class_label
+    - active_vehicle_information.vehicle_class_label
     - additional_charge_category_1
     - additional_charge_category_2
     - additional_charge_category_3
