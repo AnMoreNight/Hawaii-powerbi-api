@@ -22,8 +22,11 @@ ENV/
 .DS_Store
 Thumbs.db
 
-example.json
+# Temporary files
+sync_buffer.jsonl
+*.jsonl
+
+# Documentation (keep README)
 *.md
 !README.md
-sync_scheduler.gs
-sync_buffer.jsonl
+!VERCEL_DEPLOYMENT.md

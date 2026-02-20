@@ -82,24 +82,40 @@ Sync reservations from external API to local database with upsert logic.
 POST /sync?start_date=2025-10-01&end_date=2025-12-31
 ```
 
+## Deployment
+
+### Vercel Deployment
+
+This API is configured for deployment on Vercel. See [VERCEL_DEPLOYMENT.md](VERCEL_DEPLOYMENT.md) for complete deployment instructions.
+
+**Quick Deploy:**
+1. Push code to GitHub
+2. Import project in Vercel dashboard
+3. Set environment variables (MONGODB_URI, etc.)
+4. Deploy!
+
+**Note:** The API uses MongoDB (not PostgreSQL) and is configured for Vercel's serverless environment.
+
 ## Database Setup
 
-The API uses **PostgreSQL** (Supabase) for data storage.
+The API uses **MongoDB** for data storage.
 
 ### Required Configuration
 
-1. **Set up Supabase database**:
-   - See [SUPABASE_SETUP_GUIDE.md](SUPABASE_SETUP_GUIDE.md) for detailed instructions
-   - Create a Supabase account and project
+1. **Set up MongoDB database**:
+   - Create a MongoDB Atlas account (or use existing MongoDB instance)
    - Get your connection string
+   - Example: `mongodb+srv://user:password@cluster.mongodb.net/?appName=Cluster0`
 
-2. **Configure DATABASE_URL**:
+2. **Configure MONGODB_URI**:
    - Create `.env` file in project root
-   - Add: `DATABASE_URL=postgresql+asyncpg://postgres:YOUR_PASSWORD@db.xxxxx.supabase.co:5432/postgres`
-   - Replace with your actual Supabase connection string
+   - Add: `MONGODB_URI=mongodb+srv://user:password@cluster.mongodb.net/?appName=Cluster0`
+   - Replace with your actual MongoDB connection string
+   - Optional: `MONGODB_DB=hawaii_rental` (default database name)
+   - Optional: `MONGODB_RESERVATIONS_COLLECTION=reservations` (default collection name)
 
 3. **Start the API**:
-   - The database tables will be created automatically on first startup
+   - Collections will be created automatically on first sync
    - Run: `python main.py`
 
 ### Database Operations
@@ -109,9 +125,9 @@ The API uses **PostgreSQL** (Supabase) for data storage.
 
 ## Power BI Integration
 
-Connect Power BI workspace directly to your Supabase PostgreSQL database:
+Connect Power BI to the `/powerbi` endpoint:
 
-- **See**: [POWERBI_WORKSPACE_INTEGRATION.md](POWERBI_WORKSPACE_INTEGRATION.md) for complete workspace integration guide
-- **See**: [POWERBI_SUPABASE_CONNECTION.md](POWERBI_SUPABASE_CONNECTION.md) for connection details
-- **Benefits**: Direct connection, faster, scheduled refresh support, workspace collaboration
-- **Requirements**: Supabase database active, Power BI Pro license (for scheduled refresh), workspace access
+- **Endpoint**: `GET /powerbi`
+- **Returns**: All reservations with automatic sync of last 60 days
+- **Format**: JSON stream (memory-efficient for large datasets)
+- **Usage**: Use as a web data source in Power BI

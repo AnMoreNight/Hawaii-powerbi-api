@@ -7,6 +7,7 @@ from typing import Optional
 import httpx
 import logging
 import asyncio
+import os
 from datetime import datetime, timedelta, timezone
 
 from api_client import fetch_all_pages, build_filters, get_api_headers, BASE_URL, fetch_available_agents, fetch_single_page
@@ -114,7 +115,9 @@ async def sync_reservations_route(
         now_utc = datetime.now(timezone.utc).isoformat()
 
         # File-based buffer (NDJSON: one JSON object per line)
-        buffer_file = "sync_buffer.jsonl"
+        # Use /tmp for Vercel serverless (read-only filesystem except /tmp)
+        tmp_dir = os.getenv("TMPDIR", "/tmp")
+        buffer_file = os.path.join(tmp_dir, "sync_buffer.jsonl")
         # Reset buffer file at start
         try:
             with open(buffer_file, "w", encoding="utf-8"):
