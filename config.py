@@ -28,6 +28,5 @@ if not MONGODB_URI:
     logger.warning("MONGODB_URI is not set. Please configure it in your environment for MongoDB.")
 
 # Logging Configuration
-LOG_LEVEL = os.getenv("LOG_LEVEL", "INFO")
 LOG_FORMAT = "%(asctime)s - %(levelname)s - %(message)s"
 LOG_DATE_FORMAT = "%Y-%m-%d %H:%M:%S"

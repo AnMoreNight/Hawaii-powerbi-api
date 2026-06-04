@@ -7,7 +7,7 @@ from typing import Optional
 from contextlib import asynccontextmanager
 import logging
 
-from config import LOG_LEVEL, LOG_FORMAT, LOG_DATE_FORMAT
+from config import LOG_FORMAT, LOG_DATE_FORMAT
 from routes import (
     get_reservations_route,
     sync_reservations_route,
@@ -17,7 +17,7 @@ from mongo_database import close_client as close_mongo_client
 
 # Configure logging
 logging.basicConfig(
-    level=LOG_LEVEL,
+    level=logging.INFO,
     format=LOG_FORMAT,
     datefmt=LOG_DATE_FORMAT
 )

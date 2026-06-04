@@ -7,6 +7,4 @@ services:
     envVars:
       - key: DATABASE_URL
         sync: false  # Set this in Render dashboard with your Supabase connection string
-      - key: LOG_LEVEL
-        value: INFO
       # Add AUTH_TOKEN and DATABASE_URL in Render dashboard (don't put secrets in this file)
