@@ -216,11 +216,38 @@ async def sync_reservations_route(
                     logger.warning("Reached maximum page limit (10000). Stopping.")
                     break
 
-        # Read buffer file and bulk upsert into MongoDB
+        # Fetch cancelled IDs first, before building upsert operations,
+        # so we can exclude them from the buffer and avoid inserting records that will be deleted.
+        logger.info("Fetching cancelled reservation IDs before building upsert operations...")
+        cancelled_ids = set()
+        cancelled_filters_json = build_filters(start_date, end_date, "cancelled")
+
+        async with httpx.AsyncClient() as client:
+            page = 1
+            while True:
+                page_reservations, current_page, fetched_last_page = await fetch_single_page(
+                    client, BASE_URL, headers, cancelled_filters_json, page
+                )
+                if not page_reservations:
+                    break
+                for res in page_reservations:
+                    rid = res.get("id")
+                    if rid is not None:
+                        cancelled_ids.add(rid)
+                if fetched_last_page is not None and current_page >= fetched_last_page:
+                    break
+                page += 1
+                if page > 10000:
+                    break
+
+        logger.info(f"Found {len(cancelled_ids)} cancelled IDs — will be excluded from upsert and removed from DB")
+
+        # Read buffer file and bulk upsert into MongoDB, skipping cancelled IDs
         logger.info(f"Reading buffered reservations from {buffer_file} for bulk upsert...")
 
         operations = []
         buffered_count = 0
+        skipped_cancelled_count = 0
 
         try:
             with open(buffer_file, "r", encoding="utf-8") as f:
@@ -231,11 +258,14 @@ async def sync_reservations_route(
                     try:
                         doc = json.loads(line)
                     except json.JSONDecodeError:
-                        # Skip invalid JSON lines silently
                         continue
 
                     reservation_id = doc.get("id")
                     if not reservation_id:
+                        continue
+
+                    if reservation_id in cancelled_ids:
+                        skipped_cancelled_count += 1
                         continue
 
                     # Extract created_at so we don't set the same field in both $set and $setOnInsert
@@ -255,33 +285,53 @@ async def sync_reservations_route(
                     buffered_count += 1
 
             logger.info(f"Prepared {buffered_count} buffered reservations for bulk upsert")
+            if skipped_cancelled_count > 0:
+                logger.info(f"Skipped {skipped_cancelled_count} cancelled reservations from buffer (not upserted)")
         except FileNotFoundError:
             logger.warning(f"Buffer file {buffer_file} not found; nothing to upsert")
         except Exception as read_error:
             logger.error(f"Error reading buffer file {buffer_file}: {read_error}")
 
+        BATCH_SIZE = 500
         if operations:
-            try:
-                result = await reservations_collection.bulk_write(operations, ordered=False)
-                inserted_count = len(result.upserted_ids)
-                # matched_count includes both updated and matched w/o change; approximate updated:
-                updated_count = result.matched_count
-                logger.info(
-                    f"Bulk upsert completed. Inserted: {inserted_count}, "
-                    f"Matched/Updated: {updated_count}"
-                )
-            except BulkWriteError as bulk_error:
-                # Avoid dumping full operation details (which include buffer JSON)
-                details = bulk_error.details or {}
-                write_errors = details.get("writeErrors", [])
-                if write_errors:
-                    first = write_errors[0]
-                    code = first.get("code")
-                    msg = first.get("errmsg")
-                    logger.error(f"Bulk upsert error (first): code={code}, msg={msg}")
-                else:
-                    logger.error("Bulk upsert error with no writeErrors details")
-                error_count += 1
+            for batch_start in range(0, len(operations), BATCH_SIZE):
+                batch = operations[batch_start:batch_start + BATCH_SIZE]
+                batch_num = batch_start // BATCH_SIZE + 1
+                total_batches = (len(operations) + BATCH_SIZE - 1) // BATCH_SIZE
+                try:
+                    result = await reservations_collection.bulk_write(batch, ordered=False)
+                    inserted_count += len(result.upserted_ids)
+                    updated_count += result.matched_count
+                    logger.info(
+                        f"Batch {batch_num}/{total_batches} upserted. "
+                        f"Inserted: {len(result.upserted_ids)}, Matched: {result.matched_count}"
+                    )
+                except BulkWriteError as bulk_error:
+                    details = bulk_error.details or {}
+                    write_errors = details.get("writeErrors", [])
+                    if write_errors:
+                        first = write_errors[0]
+                        code = first.get("code")
+                        msg = first.get("errmsg")
+                        logger.error(f"Batch {batch_num} upsert error: code={code}, msg={msg}")
+                    else:
+                        logger.error(f"Batch {batch_num} upsert error with no writeErrors details")
+                    error_count += 1
+
+        # Delete cancelled IDs from MongoDB (catches previously-synced records now cancelled)
+        deleted_count = 0
+        if cancelled_ids:
+            cancelled_ids_list = list(cancelled_ids)
+            existing_count = await reservations_collection.count_documents({"id": {"$in": cancelled_ids_list}})
+            logger.info(f"Cancelled IDs present in MongoDB: {existing_count} / {len(cancelled_ids_list)}")
+            if existing_count > 0:
+                delete_result = await reservations_collection.delete_many({"id": {"$in": cancelled_ids_list}})
+                deleted_count = delete_result.deleted_count
+                logger.info(f"Deleted {deleted_count} cancelled reservations from MongoDB")
+            else:
+                logger.info("None of the cancelled IDs exist in MongoDB — nothing to delete")
+        else:
+            logger.info("No cancelled reservations found for this date range")
 
         logger.info("=" * 60)
         logger.info(f"Sync completed successfully!")
@@ -289,6 +339,7 @@ async def sync_reservations_route(
         logger.info(f"Total reservations processed (buffered): {total_processed}")
         logger.info(f"  - Inserted (bulk): {inserted_count}")
         logger.info(f"  - Updated (bulk matched): {updated_count}")
+        logger.info(f"  - Deleted (cancelled): {deleted_count}")
         logger.info(f"  - Errors: {error_count}")
         logger.info("=" * 60)
 
@@ -298,6 +349,7 @@ async def sync_reservations_route(
             "total_processed": total_processed,
             "inserted": inserted_count,
             "updated": updated_count,
+            "deleted": deleted_count,
             "errors": error_count
         })
     
