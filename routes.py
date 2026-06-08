@@ -443,33 +443,43 @@ async def get_powerbi_data_route():
         logger.info("Power BI data request - streaming all reservations from MongoDB...")
 
         reservations_collection = await get_reservations_collection()
+        total_reservations = await reservations_collection.count_documents({})
         cursor = reservations_collection.find({})
 
         async def generate_json_stream():
             """Generator that streams JSON data without loading everything into memory."""
-            count = 0
-            yield '{"success":true,"data":['  # Start JSON response
-            
+            streamed_count = 0
+            yield f'{{"success":true,"total":{total_reservations},"data":['  # Start JSON response
+
             first_item = True
             async for doc in cursor:
                 # Remove internal MongoDB _id
                 doc.pop("_id", None)
-                
+
+                # Flatten vehicle_class_label from nested active_vehicle_information
+                if "vehicle_class_label" not in doc:
+                    active_vehicle = doc.get("active_vehicle_information")
+                    if isinstance(active_vehicle, dict) and "vehicle_class_label" in active_vehicle:
+                        doc["vehicle_class_label"] = active_vehicle.get("vehicle_class_label")
+
+                # Remove nested active_vehicle_information to avoid duplication in response
+                doc.pop("active_vehicle_information", None)
+
                 if not first_item:
                     yield ','
                 first_item = False
-                
+
                 # Stream each document as JSON
                 yield json.dumps(doc, ensure_ascii=False)
-                count += 1
-                
+                streamed_count += 1
+
                 # Yield control periodically to avoid blocking
-                if count % 10000 == 0:
+                if streamed_count % 10000 == 0:
                     await asyncio.sleep(0)  # Yield to event loop
-                    logger.info(f"Streamed {count} documents so far...")
-            
-            yield f'],"total":{count}}}'  # End JSON response
-            logger.info(f"Power BI data streaming complete. Streamed {count} reservations.")
+                    logger.info(f"Streamed {streamed_count} documents so far...")
+
+            yield ']}'  # End JSON response
+            logger.info(f"Power BI data streaming complete. Streamed {streamed_count} reservations.")
 
         return StreamingResponse(
             generate_json_stream(),
