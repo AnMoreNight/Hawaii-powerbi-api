@@ -42,7 +42,7 @@ async def get_reservations_route(
     try:
         logger.info(
             f"API Request - start_date: {start_date}, end_date: {end_date}, "
-            f"status: {status or 'rental,completed'}"
+            f"status: {status or 'rental,completed,cancelled-paid'}"
         )
         
         # Build filters and headers
@@ -95,7 +95,7 @@ async def sync_reservations_route(
     try:
         logger.info(
             f"Sync Request - start_date: {start_date}, end_date: {end_date}, "
-            f"status: {status or 'rental,completed'}"
+            f"status: {status or 'rental,completed,cancelled-paid'}"
         )
         
         # Build filters and headers
@@ -248,6 +248,7 @@ async def sync_reservations_route(
         operations = []
         buffered_count = 0
         skipped_cancelled_count = 0
+        cancelled_paid_ids = []
 
         try:
             with open(buffer_file, "r", encoding="utf-8") as f:
@@ -267,6 +268,9 @@ async def sync_reservations_route(
                     if reservation_id in cancelled_ids:
                         skipped_cancelled_count += 1
                         continue
+
+                    if doc.get("status") == "cancelled-paid":
+                        cancelled_paid_ids.append(reservation_id)
 
                     # Extract created_at so we don't set the same field in both $set and $setOnInsert
                     created_at_value = doc.pop("created_at", None)
@@ -291,6 +295,13 @@ async def sync_reservations_route(
             logger.warning(f"Buffer file {buffer_file} not found; nothing to upsert")
         except Exception as read_error:
             logger.error(f"Error reading buffer file {buffer_file}: {read_error}")
+
+        # Cancelled-paid detailed stats: check how many already exist in DB before upserting
+        cancelled_paid_in_db = 0
+        if cancelled_paid_ids:
+            logger.info(f"Cancelled-paid found from API: {len(cancelled_paid_ids)}")
+            cancelled_paid_in_db = await reservations_collection.count_documents({"id": {"$in": cancelled_paid_ids}})
+            logger.info(f"Cancelled-paid already in DB: {cancelled_paid_in_db} / {len(cancelled_paid_ids)}")
 
         BATCH_SIZE = 500
         if operations:
@@ -339,6 +350,7 @@ async def sync_reservations_route(
         logger.info(f"Total reservations processed (buffered): {total_processed}")
         logger.info(f"  - Inserted (bulk): {inserted_count}")
         logger.info(f"  - Updated (bulk matched): {updated_count}")
+        logger.info(f"  - Cancelled-paid found: {len(cancelled_paid_ids)}, in DB before sync: {cancelled_paid_in_db}, updated: {cancelled_paid_in_db}")
         logger.info(f"  - Deleted (cancelled): {deleted_count}")
         logger.info(f"  - Errors: {error_count}")
         logger.info("=" * 60)

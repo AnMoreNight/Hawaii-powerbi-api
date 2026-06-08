@@ -173,7 +173,7 @@ def build_filters(start_date: str, end_date: str, status: str = None) -> str:
     Args:
         start_date: Start date (YYYY-MM-DD)
         end_date: End date (YYYY-MM-DD)
-        status: Optional comma-separated statuses (default: 'rental,completed')
+        status: Optional comma-separated statuses (default: 'rental,completed,cancelled-paid')
     
     Returns:
         JSON string of filters
@@ -197,7 +197,7 @@ def build_filters(start_date: str, end_date: str, status: str = None) -> str:
     if status:
         status_list = [s.strip() for s in status.split(",")]
     else:
-        status_list = ["rental", "completed"]
+        status_list = ["rental", "completed", "cancelled-paid"]
     
     filters.append({
         "type": "string",
